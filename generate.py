@@ -20,6 +20,7 @@ class Globals():
     filename = "lyric.txt"
     range_num = 60
     epochs = 1
+    override = True
 
 class Data:
 
@@ -76,6 +77,11 @@ class Data:
             f<string> -> string
 
             """
+            if Globals.override:
+
+                from process import read_data
+                return read_data()
+
             with open(f, 'r') as infile:
                 return infile.read().lower()
 
