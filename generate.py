@@ -20,7 +20,12 @@ class Globals():
     filename = "lyric.txt"
     range_num = 60
     epochs = 1
-    override = True
+
+
+    # if you are not nasr maswood you can just ignore override
+    # and where it occurs
+
+    override = False
 
 class Data:
 
