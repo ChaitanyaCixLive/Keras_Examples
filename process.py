@@ -14,6 +14,6 @@ def read_data():
 
         with open(name, 'r') as f:
 
-            acc.append(file.read())
+            acc.append(f.read())
 
     return ''.join(acc)
