@@ -22,6 +22,8 @@ gen.train_model()
 
 # Addition RNN
 
+This file uses a rnn to learn how to perform basic arithmetic (of a limited scope) Longer digits require more training
+
 ```python
 
 # generates input data 
@@ -35,6 +37,25 @@ model = Model(data)
 model.run()
 
 ```
+
+# AntiRectifier
+
+This example shows how you can subclass layers.Layers to create new custom layers
+
+```python
+# Initializes the model
+model = Model()
+
+# Runs model
+model.run()
+
+```
+
+
+
+
+
+
 
 
 
