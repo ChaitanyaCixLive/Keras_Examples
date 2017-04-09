@@ -84,6 +84,45 @@ class Data():
 
         pass
 
+    @staticmethod
+    def generate_questions():
+
+        numbers = list('0123456789')
+
+        questions = []
+        expected = []
+        seen = set()
+
+        print('Generating data...')
+
+        while len(questions) < Globals.training_size:
+
+            f = lambda: int(''.join(np.random.choice(numbers)
+                            for i in range(np.random.randint(1, Globals.digits + 1))))
+            a, b = f(), f()
+            # Skip any addition questions we've already seen
+            # Also skip any such that x+Y == Y+x (hence the sorting).
+            key = tuple(sorted((a, b)))
+            if key in seen:
+                continue
+            seen.add(key)
+            # Pad the data with spaces such that it is always MAxLEN.
+            q = '{}+{}'.format(a, b)
+            query = q + ' ' * (Globals.max_len - len(q))
+            ans = str(a + b)
+            # Answers can be of maximum size DIGITS + 1.
+            ans += ' ' * (Globals.digits+ 1 - len(ans))
+            if Globals.invert:
+                # Reverse the query, e.g., '12+345  ' becomes '  543+21'. (Note the
+                # space used for padding.)
+                query = query[::-1]
+            questions.append(query)
+            expected.append(ans)
+
+        return questions, expected
+
+
+
 
 
 # Parameters for the model and dataset.
@@ -95,44 +134,8 @@ class Data():
 chars = '0123456789+ '
 ctable = CharacterTable(chars)
 
-def generate_questions():
 
-    numbers = list('0123456789')
-
-    questions = []
-    expected = []
-    seen = set()
-
-    print('Generating data...')
-
-    while len(questions) < Globals.training_size:
-
-        f = lambda: int(''.join(np.random.choice(numbers)
-                        for i in range(np.random.randint(1, Globals.digits + 1))))
-        a, b = f(), f()
-        # Skip any addition questions we've already seen
-        # Also skip any such that x+Y == Y+x (hence the sorting).
-        key = tuple(sorted((a, b)))
-        if key in seen:
-            continue
-        seen.add(key)
-        # Pad the data with spaces such that it is always MAxLEN.
-        q = '{}+{}'.format(a, b)
-        query = q + ' ' * (Globals.max_len - len(q))
-        ans = str(a + b)
-        # Answers can be of maximum size DIGITS + 1.
-        ans += ' ' * (Globals.digits+ 1 - len(ans))
-        if Globals.invert:
-            # Reverse the query, e.g., '12+345  ' becomes '  543+21'. (Note the
-            # space used for padding.)
-            query = query[::-1]
-        questions.append(query)
-        expected.append(ans)
-
-    return questions, expected
-
-
-questions, expected = generate_questions()
+questions, expected = Data.generate_questions()
 
 def vectorize(questions):
     print('Vectorization...')

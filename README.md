@@ -1,8 +1,7 @@
-# Text Generator
+# LSTM Text Generator
+Feed the text generator of text file. Alternatively use process.py to feed it a folder with files of .txt and it will concatenate them into a large string.
 
-
-I was going through the Keras examples and I found the text generator one. I have alot of text data so it seemed like a cool idea to try it out. However,
-I didn't like how it was written so I rewrote it to better suite my style and so that I understood it better.
+The output will be new string generated from sample the space of in the input text.
 
 ## How to Use
 
@@ -21,8 +20,24 @@ gen = Generate(data)
 gen.train_model()
 ```
 
-## How to Tweak
+# Addition RNN
 
-Change the global values struct to modify parameters
+```python
+
+# generates input data 
+
+data = Data()
+
+# Initializes the model
+model = Model(data)
+
+# Runs model
+model.run()
+
+```
+
+
+
+
 
 
