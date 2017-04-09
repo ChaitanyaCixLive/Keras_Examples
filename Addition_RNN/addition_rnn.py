@@ -27,6 +27,21 @@ class colors:
 
 class Globals:
 
+    """
+    trainingsize <int>
+        How many samples will you use?
+
+    digits <int>
+        What is the maximum number of digits your lstm can recognize
+        e.g. 21 <2> vs. 123<3> vs 1234<4>
+
+    invert<bool>
+        do you invert input to increase perf
+
+    max_len<int>
+        pass
+    """
+
     training_size = 50000
     digits = 3
     invert = True
@@ -43,6 +58,14 @@ class CharacterTable(object):
 
         # Arguments
             chars: Characters that can appear in the input.
+
+        chars
+            what chars does LSTM expect?
+        char_indices
+            maps chars to numbers for hot encoding
+        indices_char
+            maps numbers to char to work backwards
+
         """
         self.chars = sorted(set(chars))
         self.char_indices = {c: i for i, c in enumerate(self.chars)}
@@ -58,19 +81,60 @@ class CharacterTable(object):
         x = np.zeros((num_rows, len(self.chars)))
         for i, c in enumerate(C):
             x[i, self.char_indices[c]] = 1
+
         return x
 
     def decode(self, x, calc_argmax=True):
+        """Converts hot encoding to char
+
+        x<arr<int>>
+            hot encoding of a letter
+
+        calc_argmax<bool>
+            pass
+
+        """
+
         if calc_argmax:
             x = x.argmax(axis=-1)
         return ''.join(self.indices_char[x] for x in x)
 
 class Data():
 
+    """
+    chars<string>
+        What chars to expect
+
+    ctable<Object>
+        Contains mappings of ints to chars and back
+
+    """
     chars = '0123456789+ '
     ctable = CharacterTable(chars)
 
     def __init__(self):
+
+        """
+        x<arr<int>>
+            Input hot encoded e.g. 4 + 5
+
+        y<arr<int>>
+            Output hot encdoed 9
+
+        x_train<arr<int>>
+            90% data<x>
+
+        x_val<arr<int>>
+            90% data<y>
+
+        y_train<arr<int>>
+            10% data<x>
+
+        y_val<arr<int>>
+
+            10% data<y>
+
+        """
 
         questions, expected = Data._generate_questions()
 
@@ -85,8 +149,31 @@ class Data():
         self.y_train = y_train
         self.y_val = y_val
 
+
+    @staticmethod
+    def _create_a_random_int(numbers):
+        """
+
+        Creates a random int given the numbers, size listed
+
+        numbers<List<str>> ->
+        str
+
+        """
+
+        res = int(''.join(np.random.choice(numbers)
+                            for i in range(np.random.randint(1, Globals.digits + 1))))
+
+        return res
+
     @staticmethod
     def _generate_questions():
+
+        """Produces input and output vecotrs not hot encoded
+
+        -> List<string>,  List<String>
+
+        """
 
         numbers = list('0123456789')
 
@@ -96,9 +183,7 @@ class Data():
 
         while len(questions) < Globals.training_size:
 
-            f = lambda: int(''.join(np.random.choice(numbers)
-                            for i in range(np.random.randint(1, Globals.digits + 1))))
-            a, b = f(), f()
+            a, b = Data._create_a_random_int(numbers), Data._create_a_random_int(numbers)
             # Skip any addition questions we've already seen
             # Also skip any such that x+Y == Y+x (hence the sorting).
             key = tuple(sorted((a, b)))
@@ -107,14 +192,17 @@ class Data():
             seen.add(key)
             # Pad the data with spaces such that it is always MAxLEN.
             q = '{}+{}'.format(a, b)
-            query = q + ' ' * (Globals.max_len - len(q))
-            ans = str(a + b)
+
+            query = q.ljust(Globals.max_len)
+
             # Answers can be of maximum size DIGITS + 1.
-            ans += ' ' * (Globals.digits+ 1 - len(ans))
+            ans = str(a + b).ljust(Globals.digits + 1)
+
             if Globals.invert:
                 # Reverse the query, e.g., '12+345  ' becomes '  543+21'. (Note the
                 # space used for padding.)
                 query = query[::-1]
+
             questions.append(query)
             expected.append(ans)
 
@@ -122,6 +210,16 @@ class Data():
 
     @staticmethod
     def _vectorize(questions, expected):
+
+        """
+        Converts questions, expected to vectors via hot encoding
+
+        questions<List<str>> -> questions<List<str>>
+
+        -> X<arr<int>>, Y<arr<int>>
+
+        """
+
         print('Vectorization...')
         x = np.zeros((len(questions), Globals.max_len, len(Data.chars)), dtype=np.bool)
         y = np.zeros((len(questions), Globals.digits + 1, len(Data.chars)), dtype=np.bool)
@@ -144,6 +242,20 @@ class Model():
 
     def __init__(self,data, rnn = layers.LSTM, hidden_size = 128, batch_size = 128, layers = 1):
 
+        """
+        data<Object>
+            Object that holds training data, already split
+
+        rnn<Layer>
+            pass
+        hidden_size<int>
+            Amount of nodes in hidden layer?
+        batch_size<int>
+            Size of batch?
+        layers<int>
+            Layers? lol
+        """
+
         self.data = data
 
         self.rnn = rnn
@@ -154,6 +266,13 @@ class Model():
 
     @staticmethod
     def _create_output_str(correct, guess, q):
+        """Given the output a network prediction and the actual presents how it did visually
+
+        correct  -> guess-> q ->
+
+        str
+
+        """
 
         if correct == guess:
             correct_str = colors.ok + '☑' + colors.close
@@ -172,14 +291,21 @@ class Model():
 
     def _build_model(self):
 
-        print('Build model...')
+        """
+        Builds and returns model
+
+        -> Keras Model
+
+        """
+
         model = Sequential()
+
         # "Encode" the input sequence using an RNN, producing an output of HIDDEN_SIZE.
         # Note: In a situation where your input sequences have a variable length,
         # use input_shape=(None, num_feature).
-        model.add(
-                self.rnn(self.hidden_size, input_shape=(Globals.max_len, len(Data.chars)))
-                )
+
+        model.add(self.rnn(self.hidden_size, input_shape=(Globals.max_len, len(Data.chars))))
+
         # As the decoder RNN's input, repeatedly provide with the last hidden state of
         # RNN for each time step. Repeat 'DIGITS + 1' times as that's the maximum
         # length of output, e.g., when DIGITS=3, max output is 999+999=1998.
@@ -206,6 +332,12 @@ class Model():
 
     def run(self):
 
+        """
+
+        Builds models and fits it for 200 iterations
+
+        """
+
         model = self._build_model()
 
         for _ in range(200):
@@ -229,4 +361,3 @@ if __name__ == "__main__":
     data = Data()
     model = Model(data)
     model.run()
-
