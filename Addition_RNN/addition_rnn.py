@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 '''An implementation of sequence to sequence learning for performing addition
 Input: "535+61"
 Output: "596"
@@ -11,25 +12,13 @@ and
 "Sequence to Sequence Learning with Neural Networks"
 http://papers.nips.cc/paper/5346-sequence-to-sequence-learning-with-neural-networks.pdf
 Theoretically it introduces shorter term dependencies between source and target.
-
-Two digits inverted:
-+ One layer LSTM (128 HN), 5k training examples = 99% train/test accuracy in 55 epochs
-
-Three digits inverted:
-+ One layer LSTM (128 HN), 50k training examples = 99% train/test accuracy in 100 epochs
-
-Four digits inverted:
-+ One layer LSTM (128 HN), 400k training examples = 99% train/test accuracy in 20 epochs
-
-Five digits inverted:
-+ One layer LSTM (128 HN), 550k training examples = 99% train/test accuracy in 30 epochs
 '''
 
-from __future__ import print_function
 from keras.models import Sequential
 from keras import layers
 import numpy as np
-from six.moves import range
+
+from sklearn.model_selection import train_test_split
 
 class colors:
     ok = '\033[92m'
@@ -42,7 +31,6 @@ class Globals:
     digits = 3
     invert = True
     max_len = digits + 1 + digits
-    chars = '0123456789+ '
 
 class CharacterTable(object):
     """Given a set of characters:
@@ -57,8 +45,8 @@ class CharacterTable(object):
             chars: Characters that can appear in the input.
         """
         self.chars = sorted(set(chars))
-        self.char_indices = dict((c, i) for i, c in enumerate(self.chars))
-        self.indices_char = dict((i, c) for i, c in enumerate(self.chars))
+        self.char_indices = {c: i for i, c in enumerate(self.chars)}
+        self.indices_char = {i: c for i, c in enumerate(self.chars)}
 
     def encode(self, C, num_rows):
         """One hot encode given string C.
@@ -77,23 +65,34 @@ class CharacterTable(object):
             x = x.argmax(axis=-1)
         return ''.join(self.indices_char[x] for x in x)
 
-
 class Data():
+
+    chars = '0123456789+ '
+    ctable = CharacterTable(chars)
 
     def __init__(self):
 
-        pass
+        questions, expected = Data._generate_questions()
+
+        x,y = Data._vectorize(questions, expected)
+
+        x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=0.1)
+
+        self.x = x
+        self.y = y
+        self.x_train = x_train
+        self.x_val = x_val
+        self.y_train = y_train
+        self.y_val = y_val
 
     @staticmethod
-    def generate_questions():
+    def _generate_questions():
 
         numbers = list('0123456789')
 
         questions = []
         expected = []
         seen = set()
-
-        print('Generating data...')
 
         while len(questions) < Globals.training_size:
 
@@ -121,131 +120,113 @@ class Data():
 
         return questions, expected
 
+    @staticmethod
+    def _vectorize(questions, expected):
+        print('Vectorization...')
+        x = np.zeros((len(questions), Globals.max_len, len(Data.chars)), dtype=np.bool)
+        y = np.zeros((len(questions), Globals.digits + 1, len(Data.chars)), dtype=np.bool)
+        for i, sentence in enumerate(questions):
+            x[i] = Data.ctable.encode(sentence, Globals.max_len)
+        for i, sentence in enumerate(expected):
+            y[i] = Data.ctable.encode(sentence, Globals.digits + 1)
+
+        # Shuffle (x, y) in unison as the later parts of x will almost all be larger
+        # digits.
+
+        indices = np.arange(len(y))
+        np.random.shuffle(indices)
+        x = x[indices]
+        y = y[indices]
+
+        return x,y
+
+class Model():
+
+    def __init__(self,data, rnn = layers.LSTM, hidden_size = 128, batch_size = 128, layers = 1):
+
+        self.data = data
+
+        self.rnn = rnn
+        self.hidden_size = hidden_size
+        self.batch_size = batch_size
+        self.layers= layers
 
 
+    @staticmethod
+    def _create_output_str(correct, guess, q):
 
+        if correct == guess:
+            correct_str = colors.ok + '☑' + colors.close
+        else:
+            correct_str = colors.fail + '☒' + colors.close
 
-# Parameters for the model and dataset.
+        strs = [
+            f'Q {q[::-1] if Globals.invert else q}',
+            f'T {correct}',
+            correct_str,
+            guess,
+            '---'
+        ]
 
-# Maximum length of input is 'int + int' (e.g., '345+678'). Maximum length of
-# int is DIGITS.
+        return '\n'.join(strs)
 
-# All the numbers, plus sign and space for padding.
-chars = '0123456789+ '
-ctable = CharacterTable(chars)
+    def _build_model(self):
 
+        print('Build model...')
+        model = Sequential()
+        # "Encode" the input sequence using an RNN, producing an output of HIDDEN_SIZE.
+        # Note: In a situation where your input sequences have a variable length,
+        # use input_shape=(None, num_feature).
+        model.add(
+                self.rnn(self.hidden_size, input_shape=(Globals.max_len, len(Data.chars)))
+                )
+        # As the decoder RNN's input, repeatedly provide with the last hidden state of
+        # RNN for each time step. Repeat 'DIGITS + 1' times as that's the maximum
+        # length of output, e.g., when DIGITS=3, max output is 999+999=1998.
+        model.add(layers.RepeatVector(Globals.digits+ 1))
+        # The decoder RNN could be multiple layers stacked or a single layer.
+        for _ in range(self.layers):
+            # By setting return_sequences to True, return not only the last output but
+            # all the outputs so far in the form of (num_samples, timesteps,
+            # output_dim). This is necessary as TimeDistributed in the below expects
+            # the first dimension to be the timesteps.
+            model.add(self.rnn(self.hidden_size, return_sequences=True))
 
-questions, expected = Data.generate_questions()
+        # Apply a dense layer to the every temporal slice of an input. For each of step
+        # of the output sequence, decide which character should be chosen.
 
-def vectorize(questions):
-    print('Vectorization...')
-    x = np.zeros((len(questions), Globals.max_len, len(chars)), dtype=np.bool)
-    y = np.zeros((len(questions), Globals.digits + 1, len(chars)), dtype=np.bool)
-    for i, sentence in enumerate(questions):
-        x[i] = ctable.encode(sentence, Globals.max_len)
-    for i, sentence in enumerate(expected):
-        y[i] = ctable.encode(sentence, Globals.digits + 1)
+        model.add(layers.TimeDistributed(layers.Dense(len(Data.chars))))
+        model.add(layers.Activation('softmax'))
+        model.compile(loss='categorical_crossentropy',
+                      optimizer='adam',
+                      metrics=['accuracy'])
+        model.summary()
 
-    # Shuffle (x, y) in unison as the later parts of x will almost all be larger
-    # digits.
+        return model
 
-    indices = np.arange(len(y))
-    np.random.shuffle(indices)
-    x = x[indices]
-    y = y[indices]
+    def run(self):
 
-    return x,y
+        model = self._build_model()
 
-x,y = vectorize(questions)
+        for _ in range(200):
 
-# Explicitly set apart 10% for validation data that we never train over.
-split_at = len(x) - len(x) // 10
+           model.fit(self.data.x_train, self.data.y_train,
+                      batch_size=self.batch_size,
+                      epochs=1,
+                      validation_data=(self.data.x_val, self.data.y_val))
 
-(x_train, x_val) = x[:split_at], x[split_at:]
-(y_train, y_val) = y[:split_at], y[split_at:]
-
-print('Training Data:')
-print(x_train.shape)
-print(y_train.shape)
-
-print('Validation Data:')
-print(x_val.shape)
-print(y_val.shape)
-
-# Try replacing GRU, or SimpleRNN.
-RNN = layers.LSTM
-HIDDEN_SIZE = 128
-BATCH_SIZE = 128
-LAYERS = 1
-
-def build_model():
-
-    print('Build model...')
-    model = Sequential()
-    # "Encode" the input sequence using an RNN, producing an output of HIDDEN_SIZE.
-    # Note: In a situation where your input sequences have a variable length,
-    # use input_shape=(None, num_feature).
-    model.add(RNN(HIDDEN_SIZE, input_shape=(Globals.max_len, len(chars))))
-    # As the decoder RNN's input, repeatedly provide with the last hidden state of
-    # RNN for each time step. Repeat 'DIGITS + 1' times as that's the maximum
-    # length of output, e.g., when DIGITS=3, max output is 999+999=1998.
-    model.add(layers.RepeatVector(Globals.digits+ 1))
-    # The decoder RNN could be multiple layers stacked or a single layer.
-    for _ in range(LAYERS):
-        # By setting return_sequences to True, return not only the last output but
-        # all the outputs so far in the form of (num_samples, timesteps,
-        # output_dim). This is necessary as TimeDistributed in the below expects
-        # the first dimension to be the timesteps.
-        model.add(RNN(HIDDEN_SIZE, return_sequences=True))
-
-    # Apply a dense layer to the every temporal slice of an input. For each of step
-    # of the output sequence, decide which character should be chosen.
-
-    model.add(layers.TimeDistributed(layers.Dense(len(chars))))
-    model.add(layers.Activation('softmax'))
-    model.compile(loss='categorical_crossentropy',
-                  optimizer='adam',
-                  metrics=['accuracy'])
-    model.summary()
-
-    return model
-
-
-
-print('Build model...')
-
-
-
-def run(model):
-
-    for iteration in range(1, 200):
-        print()
-        print('-' * 50)
-        print('Iteration', iteration)
-        model.fit(x_train, y_train,
-                  batch_size=BATCH_SIZE,
-                  epochs=1,
-                  validation_data=(x_val, y_val))
-        # Select 10 samples from the validation set at random so we can visualize
-        # errors.
-        for i in range(10):
-            ind = np.random.randint(0, len(x_val))
-            rowx, rowy = x_val[np.array([ind])], y_val[np.array([ind])]
-            preds = model.predict_classes(rowx, verbose=0)
-            q = ctable.decode(rowx[0])
-            correct = ctable.decode(rowy[0])
-            guess = ctable.decode(preds[0], calc_argmax=False)
-            print('Q', q[::-1] if Globals.invert else q)
-            print('T', correct)
-            if correct == guess:
-                print(colors.ok + '☑' + colors.close, end=" ")
-            else:
-                print(colors.fail + '☒' + colors.close, end=" ")
-            print(guess)
-            print('---')
+           for _ in range(10):
+               ind = np.random.randint(0, len(self.data.x_val))
+               rowx, rowy = self.data.x_val[np.array([ind])], self.data.y_val[np.array([ind])]
+               preds = model.predict_classes(rowx, verbose=0)
+               q = Data.ctable.decode(rowx[0])
+               correct = Data.ctable.decode(rowy[0])
+               guess = Data.ctable.decode(preds[0], calc_argmax=False)
+               print (Model._create_output_str(correct, guess, q))
 
 if __name__ == "__main__":
 
-    model = build_model()
-    run(model)
+    data = Data()
+    model = Model(data)
+    model.run()
 
