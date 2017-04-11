@@ -24,77 +24,88 @@ import tarfile
 import numpy as np
 import re
 
+class Data():
 
-def tokenize(sent):
-    '''Return the tokens of a sentence including punctuation.
+    @staticmethod
+    def tokenize(sent):
+        '''Return the tokens of a sentence including punctuation.
 
-    >>> tokenize('Bob dropped the apple. Where is the apple?')
-    ['Bob', 'dropped', 'the', 'apple', '.', 'Where', 'is', 'the', 'apple', '?']
-    '''
-    return [x.strip() for x in re.split('(\W+)?', sent) if x.strip()]
+        >>> tokenize('Bob dropped the apple. Where is the apple?')
+        ['Bob', 'dropped', 'the', 'apple', '.', 'Where', 'is', 'the', 'apple', '?']
+        '''
+        return [x.strip() for x in re.split('(\W+)?', sent) if x.strip()]
 
 
-def parse_stories(lines, only_supporting=False):
-    '''Parse stories provided in the bAbi tasks format
+    @staticmethod
+    def parse_stories(lines, only_supporting=False):
+        '''Parse stories provided in the bAbi tasks format
 
-    If only_supporting is true, only the sentences
-    that support the answer are kept.
-    '''
-    data = []
-    story = []
-    for line in lines:
-        line = line.decode('utf-8').strip()
-        nid, line = line.split(' ', 1)
-        nid = int(nid)
-        if nid == 1:
-            story = []
-        if '\t' in line:
-            q, a, supporting = line.split('\t')
-            q = tokenize(q)
-            substory = None
-            if only_supporting:
-                # Only select the related substory
-                supporting = map(int, supporting.split())
-                substory = [story[i - 1] for i in supporting]
+        If only_supporting is true, only the sentences
+        that support the answer are kept.
+        '''
+        data = []
+        story = []
+        for line in lines:
+            line = line.decode('utf-8').strip()
+            nid, line = line.split(' ', 1)
+            nid = int(nid)
+            if nid == 1:
+                story = []
+            if '\t' in line:
+                q, a, supporting = line.split('\t')
+                q = Data.tokenize(q)
+                substory = None
+                if only_supporting:
+                    # Only select the related substory
+                    supporting = map(int, supporting.split())
+                    substory = [story[i - 1] for i in supporting]
+                else:
+                    # Provide all the substories
+                    substory = [x for x in story if x]
+                data.append((substory, q, a))
+                story.append('')
             else:
-                # Provide all the substories
-                substory = [x for x in story if x]
-            data.append((substory, q, a))
-            story.append('')
-        else:
-            sent = tokenize(line)
-            story.append(sent)
-    return data
+                sent = Data.tokenize(line)
+                story.append(sent)
+        return data
 
-def get_stories(f, only_supporting=False, max_length=None):
-    '''Given a file name, read the file,
-    retrieve the stories,
-    and then convert the sentences into a single story.
+    @staticmethod
+    def get_stories(f, only_supporting=False, max_length=None):
+        '''Given a file name, read the file,
+        retrieve the stories,
+        and then convert the sentences into a single story.
 
-    If max_length is supplied,
-    any stories longer than max_length tokens will be discarded.
-    '''
-    data = parse_stories(f.readlines(), only_supporting=only_supporting)
-    flatten = lambda data: reduce(lambda x, y: x + y, data)
-    data = [(flatten(story), q, answer) for story, q, answer in data if not max_length or len(flatten(story)) < max_length]
-    return data
+        If max_length is supplied,
+        any stories longer than max_length tokens will be discarded.
+        '''
+        data = Data.parse_stories(f.readlines(), only_supporting=only_supporting)
+        flatten = lambda data: reduce(lambda x, y: x + y, data)
+        data = [(flatten(story), q, answer) for story, q, answer in data if not max_length or len(flatten(story)) < max_length]
+        return data
 
+    def create_vocab():
 
-def vectorize_stories(data, word_idx, story_maxlen, query_maxlen):
-    X = []
-    Xq = []
-    Y = []
-    for story, query, answer in data:
-        x = [word_idx[w] for w in story]
-        xq = [word_idx[w] for w in query]
-        # let's not forget that index 0 is reserved
-        y = np.zeros(len(word_idx) + 1)
-        y[word_idx[answer]] = 1
-        X.append(x)
-        Xq.append(xq)
-        Y.append(y)
-    return (pad_sequences(X, maxlen=story_maxlen),
-            pad_sequences(Xq, maxlen=query_maxlen), np.array(Y))
+        vocab = set()
+        for story, q, answer in train_stories + test_stories:
+            vocab |= set(story + q + [answer])
+        return sorted(vocab)
+
+    @staticmethod
+    def vectorize_stories(data, word_idx, story_maxlen, query_maxlen):
+        X = []
+        Xq = []
+        Y = []
+        for story, query, answer in data:
+            x = [word_idx[w] for w in story]
+            xq = [word_idx[w] for w in query]
+            # let's not forget that index 0 is reserved
+            y = np.zeros(len(word_idx) + 1)
+            y[word_idx[answer]] = 1
+            X.append(x)
+            Xq.append(xq)
+            Y.append(y)
+        return (pad_sequences(X, maxlen=story_maxlen),
+                pad_sequences(Xq, maxlen=query_maxlen), np.array(Y))
 
 tar = tarfile.open("babi_tasks_1-20_v1-2.tar.gz")#path)
 
@@ -109,67 +120,25 @@ challenge_type = 'single_supporting_fact_10k'
 challenge = challenges[challenge_type]
 
 print('Extracting stories for the challenge:', challenge_type)
-train_stories = get_stories(tar.extractfile(challenge.format('train')))
-test_stories = get_stories(tar.extractfile(challenge.format('test')))
+train_stories = Data.get_stories(tar.extractfile(challenge.format('train')))
+test_stories = Data.get_stories(tar.extractfile(challenge.format('test')))
 
-def create_vocab():
-
-    vocab = set()
-    for story, q, answer in train_stories + test_stories:
-        vocab |= set(story + q + [answer])
-    return sorted(vocab)
-
-vocab = create_vocab()
-
-
+vocab = Data.create_vocab()
 
 # Reserve 0 for masking via pad_sequences
 vocab_size = len(vocab) + 1
 story_maxlen = max(map(len, (x for x, _, _ in train_stories + test_stories)))
 query_maxlen = max(map(len, (x for _, x, _ in train_stories + test_stories)))
 
-def trace_vocab_str():
-
-    return '\n'.join([x.join("") for x in [('-'),
-    ('Vocab size:', vocab_size, 'unique words'),
-    ('Story max length:', story_maxlen, 'words'),
-    ('Query max length:', query_maxlen, 'words'),
-    ('Number of training stories:', len(train_stories)),
-    ('Number of test stories:', len(test_stories)),
-    ('-'),
-    ('Here\'s what a "story" tuple looks like (input, query, answer):'),
-    (train_stories[0]),
-    ('-'),
-    ('Vectorizing the word sequences...')
-    ]])
-
 word_idx = dict((c, i + 1) for i, c in enumerate(vocab))
-inputs_train, queries_train, answers_train = vectorize_stories(train_stories,
+inputs_train, queries_train, answers_train = Data.vectorize_stories(train_stories,
                                                                word_idx,
                                                                story_maxlen,
                                                                query_maxlen)
-inputs_test, queries_test, answers_test = vectorize_stories(test_stories,
+inputs_test, queries_test, answers_test = Data.vectorize_stories(test_stories,
                                                             word_idx,
                                                             story_maxlen,
                                                             query_maxlen)
-
-def foo_trace():
-
-    print('-')
-    print('inputs: integer tensor of shape (samples, max_length)')
-    print('inputs_train shape:', inputs_train.shape)
-    print('inputs_test shape:', inputs_test.shape)
-    print('-')
-    print('queries: integer tensor of shape (samples, max_length)')
-    print('queries_train shape:', queries_train.shape)
-    print('queries_test shape:', queries_test.shape)
-    print('-')
-    print('answers: binary (1 or 0) tensor of shape (samples, vocab_size)')
-    print('answers_train shape:', answers_train.shape)
-    print('answers_test shape:', answers_test.shape)
-    print('-')
-    print('Compiling...')
-
 # placeholders
 input_sequence = Input((story_maxlen,))
 question = Input((query_maxlen,))
@@ -240,4 +209,4 @@ def build_model():
               epochs=120,
               validation_data=([inputs_test, queries_test], answers_test))
 
-build_model()
+#build_model()
